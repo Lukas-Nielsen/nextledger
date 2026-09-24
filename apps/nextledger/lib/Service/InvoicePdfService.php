@@ -65,7 +65,7 @@ class InvoicePdfService {
         $isZugferd = false;
         if ($format === ZugferdXmlService::FORMAT_ZUGFERD && $company !== null) {
             try {
-                $content = $this->zugferdXmlService->buildZugferdPdf($content, $invoice, $items, $customer, $company, $misc);
+                $content = $this->zugferdXmlService->buildZugferdPdf($content, $invoice, $items, $customer, $company, $misc, $tax);
                 $isZugferd = true;
             } catch (\Throwable $e) {
                 // Fall back to a regular PDF if hybrid PDF/A-3 generation fails so the
@@ -99,10 +99,11 @@ class InvoicePdfService {
         $customer = $this->loadCustomer($invoice->getCustomerId(), $companyId);
         $company = $this->loadCompany($companyId);
         $misc = $this->loadMisc($companyId);
+        $tax = $this->loadTax($companyId);
         if ($company === null) {
             throw new RuntimeException('Aktive Firma nicht gefunden.');
         }
-        $xml = $this->zugferdXmlService->buildXml($invoice, $items, $customer, $company, $misc);
+        $xml = $this->zugferdXmlService->buildXml($invoice, $items, $customer, $company, $misc, $tax);
         $number = $this->sanitizeFilenamePart((string)($invoice->getNumber() ?: $invoiceId));
         return [
             'filename' => sprintf('Rechnung-%s-zugferd.xml', $number),

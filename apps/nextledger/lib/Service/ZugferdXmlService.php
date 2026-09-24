@@ -16,6 +16,7 @@ use OCA\NextLedger\Db\Customer;
 use OCA\NextLedger\Db\Invoice;
 use OCA\NextLedger\Db\InvoiceItem;
 use OCA\NextLedger\Db\MiscSetting;
+use OCA\NextLedger\Db\TaxSetting;
 use RuntimeException;
 
 /**
@@ -40,9 +41,10 @@ class ZugferdXmlService {
         ?Customer $customer,
         Company $company,
         ?MiscSetting $misc,
+        ?TaxSetting $tax = null,
     ): string {
         return $this->withDefaultEntityLoader(
-            fn(): string => $this->createDocumentBuilder($invoice, $items, $customer, $company, $misc)->getContent()
+            fn(): string => $this->createDocumentBuilder($invoice, $items, $customer, $company, $misc, $tax)->getContent()
         );
     }
 
@@ -59,6 +61,7 @@ class ZugferdXmlService {
         ?Customer $customer,
         Company $company,
         ?MiscSetting $misc,
+        ?TaxSetting $tax = null,
     ): ZugferdDocumentBuilder {
         if (!class_exists(ZugferdDocumentBuilder::class)) {
             throw new RuntimeException(
@@ -77,8 +80,16 @@ class ZugferdXmlService {
 
         $sellerName = (string)($company->getName() ?: 'Seller');
         $sellerCountry = $this->normalizeCountry($company->getCountryCode(), 'DE');
+        $sellerVat = trim((string)($company->getVatId() ?? ''));
+        $sellerTax = trim((string)($company->getTaxId() ?? ''));
+        // BR-CO-26: the seller must carry BT-29 (seller identifier), BT-30 (legal
+        // registration id), or BT-31 (VAT id). A German tax number alone maps to
+        // BT-32 and does NOT satisfy the rule — typical for Kleinunternehmer
+        // without a VAT id. In that case we also emit the tax number as the
+        // seller identifier (BT-29).
+        $sellerId = ($sellerVat === '' && $sellerTax !== '') ? $sellerTax : null;
         $document
-            ->setDocumentSeller($sellerName)
+            ->setDocumentSeller($sellerName, $sellerId)
             ->setDocumentSellerAddress(
                 trim(((string)$company->getStreet()) . ' ' . ((string)$company->getHouseNumber())),
                 '',
@@ -88,11 +99,9 @@ class ZugferdXmlService {
                 $sellerCountry
             );
 
-        $sellerVat = trim((string)($company->getVatId() ?? ''));
         if ($sellerVat !== '') {
             $document->addDocumentSellerTaxRegistration('VA', $sellerVat);
         }
-        $sellerTax = trim((string)($company->getTaxId() ?? ''));
         if ($sellerTax !== '') {
             $document->addDocumentSellerTaxRegistration('FC', $sellerTax);
         }
@@ -166,7 +175,11 @@ class ZugferdXmlService {
         // ---- Tax + totals: one BG-23 group per distinct rate
         $subtotal = $this->cents($invoice->getSubtotalCents());
         if ($invoice->getIsSmallBusiness()) {
-            $document->addDocumentTax('E', 'VAT', $subtotal, 0.0, 0.0);
+            // BR-E-10: a VAT breakdown with category E must carry an exemption
+            // reason text (BT-120) or code (BT-121). Use the configured
+            // Kleinunternehmer note, else a § 19 UStG default.
+            $exemptionReason = $this->smallBusinessExemptionReason($company, $tax);
+            $document->addDocumentTax('E', 'VAT', $subtotal, 0.0, 0.0, $exemptionReason);
             $taxAmount = 0.0;
         } elseif ($hasItemRates) {
             $groups = [];
@@ -229,6 +242,7 @@ class ZugferdXmlService {
         ?Customer $customer,
         Company $company,
         ?MiscSetting $misc,
+        ?TaxSetting $tax = null,
     ): string {
         if (!class_exists(ZugferdDocumentPdfBuilder::class)) {
             throw new RuntimeException(
@@ -236,9 +250,9 @@ class ZugferdXmlService {
             );
         }
 
-        return $this->withDefaultEntityLoader(function () use ($sourcePdf, $invoice, $items, $customer, $company, $misc): string {
+        return $this->withDefaultEntityLoader(function () use ($sourcePdf, $invoice, $items, $customer, $company, $misc, $tax): string {
             $this->ensureXmpReadable();
-            $document = $this->createDocumentBuilder($invoice, $items, $customer, $company, $misc);
+            $document = $this->createDocumentBuilder($invoice, $items, $customer, $company, $misc, $tax);
             $pdfBuilder = new ZugferdDocumentPdfBuilder($document, $sourcePdf);
             $pdfBuilder->generateDocument();
             $output = $pdfBuilder->downloadString();
@@ -302,6 +316,22 @@ class ZugferdXmlService {
             return $c;
         }
         return $fallback;
+    }
+
+    /**
+     * BT-120 exemption reason for small-business (Kleinunternehmer) invoices.
+     * Prefers the note configured under Settings → Steuer; falls back to a
+     * standard § 19 UStG phrase in the company's document language.
+     */
+    private function smallBusinessExemptionReason(Company $company, ?TaxSetting $tax): string {
+        $note = trim((string)($tax?->getSmallBusinessNote() ?? ''));
+        if ($note !== '') {
+            return $note;
+        }
+        $language = strtolower(trim((string)($company->getLanguageCode() ?? '')));
+        return str_starts_with($language, 'en')
+            ? 'VAT not levied pursuant to the German small business regulation (§ 19 UStG).'
+            : 'Kein Ausweis von Umsatzsteuer gemäß § 19 UStG (Kleinunternehmerregelung).';
     }
 
     /**

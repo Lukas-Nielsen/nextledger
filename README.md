@@ -108,6 +108,7 @@ Configure per company under **Settings → Firma → Dokument-Layout**:
 - ZUGFeRD generates a PDF/A‑3 with an embedded Cross Industry Invoice XML (UN/CEFACT, profile EN16931); filenames are suffixed `-zugferd.pdf`
 - Mixed per‑position VAT rates are exported as one tax group (BG‑23) per rate
 - Mandatory data: company name + address + country code, VAT‑ID **or** tax number; customer name + address + country code, VAT‑ID for B2B; bank IBAN is included as payment means when present
+- **Kleinunternehmer**: with no VAT‑ID configured, the tax number is additionally emitted as the seller identifier (BT‑29) to satisfy BR‑CO‑26, and the exempt VAT breakdown carries your configured Kleinunternehmer note (or a § 19 UStG default) as the exemption reason (BT‑120, BR‑E‑10)
 - A **sidecar XML download** is always available — via the XML button in the invoice list or `GET /api/invoices/{id}/zugferd-xml`. Use it when the recipient wants pure XRechnung XML, or when the hybrid PDF/A‑3 cannot be produced on your host
 - Validation against the [Mustang validator](https://github.com/ZUGFeRD/mustangproject) or [KoSIT XRechnung Validator](https://github.com/itplr-kosit/validator) is recommended before going live
 - After updating, run `composer install --no-dev --prefer-dist` inside `apps/nextledger` to pull `horstoeko/zugferd` and `setasign/fpdi`

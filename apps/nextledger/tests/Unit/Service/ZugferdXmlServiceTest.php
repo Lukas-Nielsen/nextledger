@@ -162,5 +162,63 @@ class ZugferdXmlServiceTest extends TestCase {
 
         $this->assertStringContainsString('CategoryCode>E<', $xml, 'Small-business invoice must use VAT category E (exempt).');
         $this->assertStringContainsString('50.00', $xml, 'Total amount must be present.');
+
+        // BR-E-10: category E requires an exemption reason (BT-120)
+        $this->assertStringContainsString('ExemptionReason', $xml, 'Exempt breakdown must carry an exemption reason.');
+        $this->assertStringContainsString('19 UStG', $xml, 'Default exemption text must reference § 19 UStG.');
+
+        // BR-CO-26: without a VAT id the tax number must double as the
+        // seller identifier (BT-29, ram:ID on the SellerTradeParty)
+        $this->assertStringContainsString('99/123/45678', $xml, 'Tax number must be present.');
+        $this->assertMatchesRegularExpression(
+            '#SellerTradeParty>\s*<ram:ID>99/123/45678</ram:ID>#s',
+            $xml,
+            'Tax number must be emitted as seller identifier (BT-29) when no VAT id exists.'
+        );
+    }
+
+    public function testSmallBusinessUsesConfiguredNoteAsExemptionReason(): void {
+        $service = new ZugferdXmlService();
+
+        $company = new Company();
+        $company->setName('Klein KG');
+        $company->setCountryCode('DE');
+        $company->setCurrencyCode('EUR');
+        $company->setTaxId('99/123/45678');
+
+        $invoice = new Invoice();
+        $invoice->setNumber('R-2');
+        $invoice->setIssueDate(strtotime('2026-09-24 00:00:00'));
+        $invoice->setIsSmallBusiness(true);
+        $invoice->setSubtotalCents(1000);
+        $invoice->setTaxCents(0);
+        $invoice->setTotalCents(1000);
+
+        $item = new InvoiceItem();
+        $item->setName('Service');
+        $item->setQuantity(1);
+        $item->setUnitPriceCents(1000);
+        $item->setTotalCents(1000);
+
+        $tax = new \OCA\NextLedger\Db\TaxSetting();
+        $tax->setIsSmallBusiness(true);
+        $tax->setSmallBusinessNote('Gemäß § 19 UStG enthält der Rechnungsbetrag keine Umsatzsteuer.');
+
+        $xml = $service->buildXml($invoice, [$item], null, $company, null, $tax);
+
+        $this->assertStringContainsString(
+            'Gemäß § 19 UStG enthält der Rechnungsbetrag keine Umsatzsteuer.',
+            $xml,
+            'Configured Kleinunternehmer note must be used as exemption reason.'
+        );
+
+        // With a VAT id present, no BT-29 fallback id is needed
+        $company->setVatId('DE123456789');
+        $xmlWithVat = $service->buildXml($invoice, [$item], null, $company, null, $tax);
+        $this->assertStringNotContainsString(
+            '<ram:ID>99/123/45678</ram:ID>',
+            $xmlWithVat,
+            'With a VAT id, the tax number must not be duplicated as BT-29.'
+        );
     }
 }

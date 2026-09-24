@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.7.2
+Fixes ZUGFeRD/EN16931 validation for Kleinunternehmer invoices (reported by Thomas Gunzelmann — thank you!).
+
+- **BR-CO-26**: When the company has a German tax number but no VAT-ID, the tax number is now additionally emitted as the seller identifier (BT-29, `ram:SellerTradeParty/ram:ID`). A tax registration with scheme `FC` alone maps to BT-32 and did not satisfy the rule.
+- **BR-E-10**: VAT breakdowns with category `E` (exempt, Kleinunternehmerregelung) now carry an exemption reason text (BT-120). The note configured under Settings → Steuer is used; if empty, a standard § 19 UStG phrase is emitted in the company's document language.
+- The Kleinunternehmer note / tax settings are now passed through to both the hybrid PDF/A-3 and the sidecar XML endpoint.
+
 ## 1.7.1
 - Raise supported Nextcloud version to **34** (`min-version 30`, `max-version 34`). NC34's removed frontend legacy APIs (jQuery, Backbone, `OC.Dialogs`/`OC.Notifications`/`OC.Apps`, global snapper) are not used by NextLedger; the backend introduces no breaking changes. Fixes the App Store install error "Server Version 33 oder niedriger wird benötigt" on Nextcloud 34.
 
